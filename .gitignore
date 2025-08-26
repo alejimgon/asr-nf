@@ -1,0 +1,19 @@
+# Data structure
+/data/*
+!/data/alignments
+!/data/phylogenetic_trees
+/data/alignments/*
+/data/phylogenetic_trees/*
+!.gitkeep
+
+# Output structure
+/outputs/*
+!.gitkeep
+
+#Nextflow specific files
+.nextflow.log*
+.nextflow/
+work/
+
+# Mac specific file
+.DS_Store
