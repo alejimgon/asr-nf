@@ -11,7 +11,7 @@ Arguments:
 
 Options:
     -m, --missing MISSING_CHAR  Character to use for missing states (default: -)
-    -n, --nodes NODE_FILTER      Node filter: comma-separated list, range 'NodeX|NodeY', or file with node names
+    -n, --nodes NODE_FILTER     Node filter: comma-separated list, range 'NodeX|NodeY', or file with node names
 """
 
 import argparse
