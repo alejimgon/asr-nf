@@ -39,6 +39,11 @@ params.extract_fasta   = false
 params.fasta_nodes     = null
 params.fasta_missing   = '-'
 
+// Sanitize output file names
+def sanitizePrefix(aln_name, model, asr_min) {
+    return "${aln_name}_${model}_${asr_min}".replaceAll(/[^A-Za-z0-9_]/, "_")
+}
+
 // --- ENVIRONMENT CHECK ---
 process CHECK_CONDA_ENV {
     tag "check_conda_env"
@@ -58,8 +63,8 @@ process CHECK_CONDA_ENV {
 
 // --- IQTREE ANCESTRAL RECONSTRUCTION ---
 process IQTREE_ANCESTRAL {
-    tag { "${aln_name}_${model}_${asr_min}" }
-    publishDir { "${params.outputs_dir}/${aln_name}_${model}_${asr_min}" }, mode: 'copy'
+    tag { sanitizePrefix(aln_name, model, asr_min) }
+    publishDir { "${params.outputs_dir}/${sanitizePrefix(aln_name, model, asr_min)}" }, mode: 'copy'
 
     input:
         tuple val(aln_name), path(alignment), path(tree_file), val(model), val(asr_min)
@@ -68,59 +73,76 @@ process IQTREE_ANCESTRAL {
         tuple val(aln_name), val(model), val(asr_min), path("*.state"), path(alignment), path(tree_file)
 
     script:
-    // Make the prefix unique for each job
-    def out_prefix = "${aln_name}_${model}_${asr_min}".replaceAll(/[^A-Za-z0-9_]/, "_")
+    def out_prefix = sanitizePrefix(aln_name, model, asr_min)
     def asr_min_opt = asr_min ? "--asr-min ${asr_min}" : ""
     def model_opt = model ? "-m ${model}" : ""
     """
     iqtree -s ${alignment} -te ${tree_file} --ancestral -asr ${asr_min_opt} ${model_opt} -nt AUTO --prefix ${out_prefix}
     """
 }
+// --- EXTRACT AA TO ITOL ---
+process EXTRACT_AA_TO_ITOL {
+    tag { sanitizePrefix(alignment.simpleName, model, asr_min) }
+
+    publishDir "${params.outputs_dir}/itol/${alignment.simpleName}_${model}_${asr_min}/itol_${aa}${position}", mode: 'copy'
+
+    input:
+        path extract_aa_to_itol_script
+        tuple path(alignment), path(state_file), val(model), val(asr_min), val(position), val(aa)
+
+    output:
+        path "${alignment.simpleName}_itol_*", emit: itol_outputs
+        path "versions.yml", emit: versions
+
+    script:
+    def tax_opt = params.tax ? "--taxonomy" : ""
+    def email_opt = (params.tax && params.email) ? "--email ${params.email}" : ""
+    """
+    python ${extract_aa_to_itol_script} ${state_file} ${params.outputs_dir}/itol/${alignment.simpleName} -al ${alignment} -p ${position} -a ${aa} ${tax_opt} ${email_opt}
+    """
+}
+
+// --- EXTRACT FASTA FROM STATE ---
+process EXTRACT_FASTA_FROM_STATE {
+    tag { state_file.getBaseName() + "_" + aa + position }
+    publishDir { "${params.outputs_dir}/${state_file.getBaseName()}_${aa}${position}" }, mode: 'copy'
+
+    input:
+        tuple path(state_file), path(alignment_path), path(tree_file), val(model), val(position), val(aa), val(asr_min), val(out_prefix), path(state_to_fasta_script)
+
+    output:
+        path "*.fasta"
+
+    script:
+    def node_opt = params.fasta_nodes ? "-n ${params.fasta_nodes}" : ""
+    def missing_opt = params.fasta_missing ? "-m ${params.fasta_missing}" : ""
+    """
+    python ${state_to_fasta_script} ${state_file} ${out_prefix}_nodes.fasta ${node_opt} ${missing_opt}
+    """
+}
 
 
 // --- MAIN WORKFLOW ---
 workflow {
-    
-
     // 1. Check environment
     CHECK_CONDA_ENV()
 
     // 2. Parse input table and prepare unique IQTREE jobs
-    ch_input = Channel
-        .fromPath(params.input_table)
-        .splitCsv(header: false, sep: '\t')
-        .map { row ->
-            def (alignment, model, position, aa, asr_min) = row*.trim()
-            def aln_name = alignment.replace('.aln','')
-            def treefile = alignment.replace('.aln', '.treefile')
-            tuple(
-                aln_name,
-                file("${params.alignments_dir}/${alignment}"),
-                file("${params.trees_dir}/${treefile}"),
-                model,
-                asr_min.toString()
-            )
-        }
+    ch_full_input = Channel
+    .fromPath(params.input_table)
+    .splitCsv(header: false, sep: '\t')
+    .map { row ->
+        def (alignment, model, position, aa, asr_min) = row*.trim()
+        def aln_name = alignment.replace('.aln','')
+        def treefile = alignment.replace('.aln', '.treefile')
+        tuple(aln_name, file("${params.alignments_dir}/${alignment}"), file("${params.trees_dir}/${treefile}"), model, asr_min, position, aa)
+    }
+
+    ch_iqtree_input = ch_full_input
+        .map { a, b, c, d, e, f, g -> tuple(a, b, c, d, e) }
         .distinct() // Ensures unique (aln_name, alignment, tree_file, model, asr_min) tuples
 
     // 3. Run IQTREE_ANCESTRAL for each unique combination
-    ch_iqtree = IQTREE_ANCESTRAL(ch_input)
-
-
-    // 4. Join IQTREE output with input table to get aa and position
-    ch_input_full = Channel
-        .fromPath(params.input_table)
-        .splitCsv(header: false, sep: '\t')
-        .map { row ->
-            def (alignment, model, position, aa, asr_min) = row*.trim()
-            def aln_name = alignment.replace('.aln','')
-            def treefile = alignment.replace('.aln', '.treefile')
-            tuple(
-                aln_name, model, asr_min.toString(), position, aa,
-                file("${params.alignments_dir}/${alignment}"),
-                file("${params.trees_dir}/${treefile}")
-            )
-        }
-
+    IQTREE_ANCESTRAL(ch_iqtree_input)
 
 }
