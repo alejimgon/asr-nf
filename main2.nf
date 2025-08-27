@@ -80,25 +80,27 @@ process IQTREE_ANCESTRAL {
     iqtree -s ${alignment} -te ${tree_file} --ancestral -asr ${asr_min_opt} ${model_opt} -nt AUTO --prefix ${out_prefix}
     """
 }
+
 // --- EXTRACT AA TO ITOL ---
 process EXTRACT_AA_TO_ITOL {
     tag { sanitizePrefix(alignment.simpleName, model, asr_min) }
-
-    publishDir "${params.outputs_dir}/itol/${alignment.simpleName}_${model}_${asr_min}/itol_${aa}${position}", mode: 'copy'
+    publishDir "outputs/${sanitizePrefix(alignment.simpleName, model, asr_min)}/itol_${aa}${position}/", mode: 'copy'
 
     input:
         path extract_aa_to_itol_script
         tuple path(alignment), path(state_file), val(model), val(asr_min), val(position), val(aa)
 
     output:
-        path "${alignment.simpleName}_itol_*", emit: itol_outputs
-        path "versions.yml", emit: versions
+        path "${alignment.simpleName}_treecolors.txt"
+        path "${alignment.simpleName}_node_prob.txt"
+        path "${alignment.simpleName}_leaf_labels.txt", optional: true
+        path "${alignment.simpleName}_taxonomy.txt", optional: true
 
     script:
     def tax_opt = params.tax ? "--taxonomy" : ""
     def email_opt = (params.tax && params.email) ? "--email ${params.email}" : ""
     """
-    python ${extract_aa_to_itol_script} ${state_file} ${params.outputs_dir}/itol/${alignment.simpleName} -al ${alignment} -p ${position} -a ${aa} ${tax_opt} ${email_opt}
+    python ${extract_aa_to_itol_script} ${state_file} ${alignment.simpleName} -al ${alignment} -p ${position} -a ${aa} ${tax_opt} ${email_opt}
     """
 }
 
@@ -121,7 +123,6 @@ process EXTRACT_FASTA_FROM_STATE {
     """
 }
 
-
 // --- MAIN WORKFLOW ---
 workflow {
     // 1. Check environment
@@ -139,10 +140,42 @@ workflow {
     }
 
     ch_iqtree_input = ch_full_input
-        .map { a, b, c, d, e, f, g -> tuple(a, b, c, d, e) }
+        .map { a, b, c, d, e, f, g -> tuple(a.toString().trim(), b, c, d.toString().trim(), e.toString().trim()) }
         .distinct() // Ensures unique (aln_name, alignment, tree_file, model, asr_min) tuples
 
     // 3. Run IQTREE_ANCESTRAL for each unique combination
-    IQTREE_ANCESTRAL(ch_iqtree_input)
+    IQTREE_ANCESTRAL_OUT = IQTREE_ANCESTRAL(ch_iqtree_input)
 
+    // 4. Extract AA sequences to iTOL
+    ch_aa_pos_input = ch_full_input
+    .map { a, _b, _c, d, e, f, g -> tuple(a, d, e, f, g) }
+    .distinct() // Ensures unique a=aln_name, d=model, e=asr_min, f=position, g=aa
+
+    ch_iqtree_ancestral_out_keyed = IQTREE_ANCESTRAL_OUT
+        .map { a, b, c, state_file, alignment, tree_file ->
+            // a=aln_name, b=model, c=asr_min, state_file, alignment, tree_file
+            // Need to add position and aa from input table, so propagate them through the workflow
+            // If not possible, join on available keys and then expand downstream
+            tuple(a, b, c, state_file, alignment, tree_file)
+        }
+    ch_aa_pos_input.view()
+    ch_iqtree_ancestral_out_keyed.view()
+
+    ch_aa_pos_with_state = ch_aa_pos_input
+        .join(ch_iqtree_ancestral_out_keyed, by: [0,1,2]) 
+        .map { flat ->
+            def aln_name   = flat[0]
+            def model      = flat[1]
+            def asr_min    = flat[2]
+            def position   = flat[3]
+            def aa         = flat[4]
+            def state_file = flat[5]
+            def alignment  = flat[6]
+            def tree_file  = flat[7]
+            tuple(alignment, state_file, model, asr_min, position, aa)
+        }
+
+    // 5. Run EXTRACT_AA_TO_ITOL for each unique combination
+    ch_extract_aa_to_itol_script = Channel.fromPath('scripts/extract_aa_to_itol.py')
+    EXTRACT_AA_TO_ITOL(ch_extract_aa_to_itol_script, ch_aa_pos_with_state)
 }
