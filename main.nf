@@ -4,15 +4,16 @@ nextflow.enable.dsl=2
 /*
 USAGE:
 
-1. Create the conda environment (only needs to be done once):
-    conda env create -f env.yaml
-2. Activate the environment:
-    conda activate ancestral_reconstruction
-3. Run the pipeline (Stage 1: iTOL visualization):
+1. Set up and activate the Conda environment
+    source scripts/setup.sh
+
+2. Run the pipeline (Stage 1: iTOL visualization):
     nextflow run main.nf
     nextflow run main.nf --tax true --email your_email@example.com   # to fetch taxonomy for leaf IDs and generate LABELS file
-4. Visualize the iTOL files and identify interesting nodes.
-5. (Optional) Extract FASTA sequences for all or selected nodes (Stage 2):
+
+3. Visualize the iTOL files and identify interesting nodes.
+
+4. (Optional) Extract FASTA sequences for all or selected nodes (Stage 2):
     nextflow run main.nf --extract_fasta true
     # To extract only specific nodes:
     nextflow run main.nf --extract_fasta true --fasta_nodes Node13,Node25
