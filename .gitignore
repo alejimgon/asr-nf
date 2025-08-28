@@ -1,5 +1,6 @@
 # Data structure
 /data/*
+!input_table.txt
 !/data/alignments
 !/data/phylogenetic_trees
 /data/alignments/*
