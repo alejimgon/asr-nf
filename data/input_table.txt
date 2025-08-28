@@ -1,0 +1,1 @@
+example.aln	JTT+G	42	K	0.7
