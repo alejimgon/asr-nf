@@ -82,7 +82,8 @@ example.aln   JTT+G   42   K   0.7
 
 ## License
 
-MIT License
+This project is for non-commercial use.  
+See [LICENSE](LICENSE) for details.
 
 ## Citation
 
@@ -90,4 +91,5 @@ If you use this pipeline, please cite [IQ-TREE](http://www.iqtree.org/) and [Nex
 
 ---
 
-*Developed
+## Developed
+Developed by Alejandro Jiménez-González
